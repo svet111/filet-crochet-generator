@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Filet Crochet Pattern Generator</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+        .controls { display: flex; gap: 1rem; flex-wrap: wrap; align-items: end; background: #f4f4f6; padding: 1rem; border-radius: 8px; }
+        .field { display: flex; flex-direction: column; gap: 0.3rem; }
+        button { padding: 0.5rem 1rem; background: #2b59c3; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; }
+        button:hover { background: #1e429f; }
+        button.secondary { background: #4a5568; }
+        button.secondary:hover { background: #2d3748; }
+        .tracker-bar { display: none; align-items: center; justify-content: space-between; background: #eef2ff; border: 1px solid #c7d2fe; padding: 0.75rem 1rem; border-radius: 8px; margin-top: 1.5rem; }
+        .tracker-controls { display: flex; align-items: center; gap: 0.5rem; }
+        .output { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 1.5rem; }
+        .grid-container { display: inline-grid; border: 1px solid #999; background: #fff; }
+        .cell { width: 12px; height: 12px; border: 0.5px solid #e0e0e0; }
+        .cell.filled { background: #222; }
+        .row-active .cell { outline: 1px solid #2b59c3; }
+        .row-active .cell:not(.filled) { background: #eef2ff; }
+        ul { list-style: none; padding: 0; max-height: 520px; overflow-y: auto; }
+        li { padding: 0.45rem 0.6rem; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 0.6rem; cursor: pointer; border-radius: 4px; }
+        li:hover { background: #f9fafb; }
+        li.done { text-decoration: line-through; color: #888; background: #f4f4f6; }
+        li.current { background: #eef2ff; font-weight: 600; border-left: 3px solid #2b59c3; }
+        .error { color: #c0392b; font-weight: 600; margin-top: 1rem; }
+
+        @media print {
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            .controls, .tracker-bar, .no-print { display: none !important; }
+            body { margin: 0; max-width: 100%; }
+            .output { display: block; }
+            ul { max-height: none; overflow: visible; }
+            li { break-inside: avoid; border: none; padding: 2px 0; }
+            li.done { text-decoration: none; color: #222; background: none; }
+        }
+    </style>
+</head>
+<body>
+<h1>Filet Crochet Pattern Generator</h1>
+
+<form id="uploadForm" class="controls">
+    <div class="field">
+        <label for="file">Image File (max 5MB)</label>
+        <input type="file" id="file" accept="image/*" required>
+    </div>
+    <div class="field">
+        <label for="width">Width (stitches)</label>
+        <input type="number" id="width" value="40" min="5" max="150">
+    </div>
+    <div class="field">
+        <label for="mode">Resize Mode</label>
+        <select id="mode">
+            <option value="SMOOTH">Smooth (Photos)</option>
+            <option value="SHARP">Sharp (Pixel Art / Logos)</option>
+        </select>
+    </div>
+    <div class="field">
+        <label for="threshold">Threshold: <span id="thresholdVal">128</span></label>
+        <input type="range" id="threshold" min="0" max="255" value="128"
+               oninput="document.getElementById('thresholdVal').textContent = this.value">
+    </div>
+    <button type="submit">Generate Pattern</button>
+    <button type="button" class="secondary" onclick="window.print()">Save PDF / Print</button>
+</form>
+
+<div id="error" class="error"></div>
+
+<div id="trackerBar" class="tracker-bar">
+    <div>
+        <strong>Row Counter:</strong> <span id="progressText">0 / 0 rows completed</span>
+        <span id="currentRowHint" style="margin-left: 0.75rem; color: #2b59c3; font-weight: 600;"></span>
+    </div>
+    <div class="tracker-controls">
+        <button type="button" class="secondary" onclick="stepRow(-1)">− Undo Row</button>
+        <button type="button" onclick="stepRow(1)">✓ Complete Next Row</button>
+        <button type="button" class="secondary" onclick="resetProgress()">Reset</button>
+    </div>
+</div>
+
+<div class="output">
+    <div>
+        <h3>Visual Chart</h3>
+        <div id="chart" class="grid-container"></div>
+    </div>
+    <div>
+        <h3>Row Instructions</h3>
+        <p style="font-size: 0.85rem; color: #555; margin-top: -0.5rem;">
+            Read from bottom up: odd rows right-to-left (RS ←), even rows left-to-right (WS →). Click any row to mark progress.
+        </p>
+        <ul id="instructions"></ul>
+    </div>
+</div>
+
+<script>
+    let currentGrid = [];
+    let currentInstructions = [];
+    let completedCount = 0;
+
+    document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const errorEl = document.getElementById('error');
+        errorEl.textContent = '';
+
+        const file = document.getElementById('file').files[0];
+        if (file && file.size > 5 * 1024 * 1024) {
+            errorEl.textContent = 'Image file must be smaller than 5MB.';
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('width', document.getElementById('width').value);
+        formData.append('mode', document.getElementById('mode').value);
+        formData.append('threshold', document.getElementById('threshold').value);
+
+        const response = await fetch('/api/patterns/generate', { method: 'POST', body: formData });
+        if (!response.ok) {
+            errorEl.textContent = await response.text();
+            return;
+        }
+
+        const data = await response.json();
+        currentGrid = data.grid;
+        currentInstructions = data.instructions;
+        completedCount = 0;
+
+        document.getElementById('trackerBar').style.display = 'flex';
+        renderAll();
+    });
+
+    function stepRow(delta) {
+        completedCount = Math.max(0, Math.min(currentInstructions.length, completedCount + delta));
+        renderAll();
+    }
+
+    function resetProgress() {
+        completedCount = 0;
+        renderAll();
+    }
+
+    function renderAll() {
+        renderChart(currentGrid);
+        renderInstructions(currentInstructions);
+        updateTracker();
+    }
+
+    function updateTracker() {
+        const total = currentInstructions.length;
+        document.getElementById('progressText').textContent = `${completedCount} / ${total} rows completed`;
+        const hint = document.getElementById('currentRowHint');
+        if (completedCount < total) {
+            hint.textContent = `Up next: ${currentInstructions[completedCount]}`;
+        } else if (total > 0) {
+            hint.textContent = '🎉 Pattern complete!';
+        }
+    }
+
+    function renderChart(grid) {
+        const chart = document.getElementById('chart');
+        chart.innerHTML = '';
+        if (!grid.length) return;
+
+        const cols = grid[0].length;
+        const totalRows = grid.length;
+        chart.style.gridTemplateColumns = `28px repeat(${cols}, 12px)`;
+
+        grid.forEach((row, rowIndex) => {
+            const crochetRowNum = totalRows - rowIndex;
+            const isNextRow = (crochetRowNum === completedCount + 1);
+
+            const label = document.createElement('div');
+            label.textContent = crochetRowNum;
+            label.style.cssText = 'font-size: 9px; color: #666; text-align: right; padding-right: 4px; line-height: 12px; background: #f9f9fb;';
+            if (isNextRow) {
+                label.style.fontWeight = 'bold';
+                label.style.color = '#2b59c3';
+            }
+            chart.appendChild(label);
+
+            for (const isFilled of row) {
+                const cell = document.createElement('div');
+                cell.className = isFilled ? 'cell filled' : 'cell';
+                if (isNextRow) {
+                    cell.style.outline = '1px solid #2b59c3';
+                }
+                chart.appendChild(cell);
+            }
+        });
+    }
+
+    function renderInstructions(instructions) {
+        const list = document.getElementById('instructions');
+        list.innerHTML = '';
+
+        instructions.forEach((line, index) => {
+            const li = document.createElement('li');
+            if (index < completedCount) li.className = 'done';
+            else if (index === completedCount) li.className = 'current';
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = index < completedCount;
+            checkbox.className = 'no-print';
+
+            const span = document.createElement('span');
+            span.textContent = line;
+
+            li.onclick = () => {
+                completedCount = (index < completedCount) ? index : index + 1;
+                renderAll();
+            };
+
+            li.appendChild(checkbox);
+            li.appendChild(span);
+            list.appendChild(li);
+        });
+    }
+</script>
+</body>
+</html>
