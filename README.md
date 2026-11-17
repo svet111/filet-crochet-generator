@@ -4,6 +4,8 @@ I'm really into crocheting right now, and whenever I wanted to make a filet croc
 
 So I built this web app to turn any image into a ready-to-crochet filet pattern in seconds.
 
+<img width="1125" height="805" alt="Screenshot 2026-11-17 at 15 09 05" src="https://github.com/user-attachments/assets/347a3c53-a1b7-4dd7-8e86-bd69df4d7679" />
+
 ## What It Does
 
 * **Image-to-Grid Conversion:** Upload a PNG or JPG, pick your stitch width (5–150 stitches), and choose between **Smooth** resizing (for photos) or **Sharp** nearest-neighbor scaling (for pixel art and crisp logos).
